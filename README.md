@@ -50,6 +50,6 @@ Pushing to `main` deploys to GitHub Pages through `.github/workflows/deploy.yml`
 
 ## Stack
 
-Vite, React, Leaflet with OpenStreetMap tiles, Photon geocoding. No backend.
+Vite, React, MapLibre GL with OpenFreeMap vector tiles, Photon geocoding. No backend, no API keys.
 
-Map data and tiles © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors.
+Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, tiles by [OpenFreeMap](https://openfreemap.org).

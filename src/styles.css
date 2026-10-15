@@ -16,7 +16,7 @@
   --font: 'IBM Plex Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --radius: 6px;
   --shadow: 0 1px 2px rgba(20, 32, 43, 0.08), 0 8px 24px rgba(20, 32, 43, 0.08);
-  --tile-filter: none;
+  --ctrl-icon-filter: none;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -33,7 +33,7 @@
     --danger: #ff7b7b;
     --ok: #4cc9a0;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.4);
-    --tile-filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9) saturate(0.6);
+    --ctrl-icon-filter: invert(1);
     color-scheme: dark;
   }
 }
@@ -50,7 +50,7 @@
   --danger: #ff7b7b;
   --ok: #4cc9a0;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.4);
-  --tile-filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9) saturate(0.6);
+  --ctrl-icon-filter: invert(1);
   color-scheme: dark;
 }
 
@@ -129,14 +129,12 @@ textarea:focus-visible {
   min-height: 0;
   background: var(--bg);
 }
-.map .leaflet-container {
-  height: 100%;
-  width: 100%;
-  font-family: var(--font);
-  background: var(--bg);
+.map .maplibregl-canvas-container,
+.map canvas {
+  outline: none;
 }
-.map .leaflet-tile-pane {
-  filter: var(--tile-filter);
+.map .maplibregl-map {
+  font-family: var(--font);
 }
 
 @media (max-width: 760px) {
@@ -755,6 +753,7 @@ dialog textarea {
   border: 0;
 }
 .mp-mid svg {
+  display: block;
   width: 44px;
   height: 44px;
   overflow: visible;
@@ -770,25 +769,42 @@ dialog textarea {
     opacity: 0;
   }
 }
-.leaflet-control-attribution {
+.maplibregl-ctrl-attrib {
   font-size: 10px;
   background: color-mix(in srgb, var(--panel) 80%, transparent) !important;
   color: var(--ink-soft) !important;
 }
-.leaflet-control-attribution a {
+.maplibregl-ctrl-attrib a {
   color: var(--ink) !important;
 }
-.leaflet-bar a {
+.maplibregl-ctrl-group {
+  background: var(--panel) !important;
+  box-shadow: var(--shadow) !important;
+}
+.maplibregl-ctrl-group button + button {
+  border-top-color: var(--line) !important;
+}
+.maplibregl-ctrl button .maplibregl-ctrl-icon {
+  filter: var(--ctrl-icon-filter, none);
+}
+.maplibregl-popup-content {
   background: var(--panel) !important;
   color: var(--ink) !important;
-  border-bottom-color: var(--line) !important;
-}
-.leaflet-popup-content-wrapper,
-.leaflet-popup-tip {
-  background: var(--panel) !important;
-  color: var(--ink) !important;
-}
-.leaflet-popup-content {
-  margin: 10px 14px !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow) !important;
+  padding: 10px 14px !important;
   font-size: 13px;
+  font-family: var(--font);
+}
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+  border-top-color: var(--panel) !important;
+}
+.maplibregl-popup-anchor-top .maplibregl-popup-tip {
+  border-bottom-color: var(--panel) !important;
+}
+.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: var(--panel) !important;
+}
+.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: var(--panel) !important;
 }

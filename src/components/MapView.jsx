@@ -1,10 +1,21 @@
-import { useEffect, useRef } from 'react';
-import L from 'leaflet';
+import { useEffect, useRef, useState } from 'react';
+import { LngLatBounds, Map as MapLibreMap, Marker, NavigationControl, Popup, setRTLTextPlugin, setWorkerUrl } from 'maplibre-gl';
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 
-// Standard OpenStreetMap tiles: free, no API key. Dark mode is handled in
-// CSS with a filter on the tile pane (see --tile-filter in styles.css).
-const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-const ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+// MapLibre runs tile parsing in a web worker. Vite emits it as its own file;
+// the single-file build (scripts/inline.mjs) embeds it and hands over a blob URL.
+setWorkerUrl(window.__MEETING_POINT_WORKER_URL__ || workerUrl);
+
+// OpenFreeMap: free vector tiles, no API key, no usage limits.
+const STYLES = {
+  light: 'https://tiles.openfreemap.org/styles/liberty',
+  dark: 'https://tiles.openfreemap.org/styles/dark',
+};
+const LINES_SOURCE = 'pull-lines';
+
+// Shapes Hebrew and Arabic map labels correctly. Loaded lazily, only when a
+// label needs it.
+setRTLTextPlugin('https://unpkg.com/@mapbox/mapbox-gl-rtl-text@0.2.3/mapbox-gl-rtl-text.js', true);
 
 function isDark() {
   const forced = document.documentElement.dataset.theme;
@@ -13,36 +24,44 @@ function isDark() {
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
-function pinIcon(color, n, dim) {
-  return L.divIcon({
-    className: `mp-pin${dim ? ' dim' : ''}`,
-    html: `<span style="--c:${color}">${n}</span>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
-  });
+function pinElement(color, n, dim) {
+  const el = document.createElement('div');
+  el.className = `mp-pin${dim ? ' dim' : ''}`;
+  el.innerHTML = `<span style="--c:${color}">${n}</span>`;
+  return el;
 }
 
-function midIcon(color) {
-  return L.divIcon({
-    className: 'mp-mid',
-    html: `<svg viewBox="0 0 44 44" aria-hidden="true">
+function updatePin(el, color, n, dim) {
+  // Toggle only our own class: MapLibre keeps its positioning classes on the same element.
+  el.classList.toggle('dim', dim);
+  const span = el.firstElementChild;
+  span.style.setProperty('--c', color);
+  span.textContent = String(n);
+}
+
+function midElement(color) {
+  const el = document.createElement('div');
+  el.className = 'mp-mid';
+  el.innerHTML = `<svg viewBox="0 0 44 44" aria-hidden="true">
       <circle class="ring" cx="22" cy="22" r="16" fill="none" stroke="${color}" stroke-width="3"/>
       <circle cx="22" cy="22" r="16" fill="${color}" fill-opacity="0.12"/>
       <path d="M22 2v9M22 33v9M2 22h9M33 22h9" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
       <path d="M22 2v9M22 33v9M2 22h9M33 22h9" stroke="${color}" stroke-width="3" stroke-linecap="round"/>
       <circle cx="22" cy="22" r="4" fill="${color}" stroke="#fff" stroke-width="2"/>
-    </svg>`,
-    iconSize: [44, 44],
-    iconAnchor: [22, 22],
-  });
+    </svg>`;
+  return el;
 }
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 }
 
+function popup(html) {
+  return new Popup({ offset: 18, closeButton: false, maxWidth: '260px' }).setHTML(html);
+}
+
 /**
- * Leaflet map showing every visible group's addresses, each group's middle,
+ * MapLibre map showing every visible group's addresses, each group's middle,
  * and (optionally) the middle of everyone. Address markers can be dragged;
  * `onMoveAddress(groupId, addressId, {lat,lng})` is called when that happens.
  */
@@ -51,23 +70,57 @@ export default function MapView({ groups, activeGroupId, everyone, onMoveAddress
   const mapRef = useRef(null);
   const markersRef = useRef(new Map());
   const midsRef = useRef(new Map());
-  const linesRef = useRef(null);
   const everyoneRef = useRef(null);
+  const linesRef = useRef({ type: 'FeatureCollection', features: [] });
   const cbRef = useRef({ onMoveAddress, onSelectGroup });
   const lastFitKey = useRef('');
+  const [styleReady, setStyleReady] = useState(0);
   cbRef.current = { onMoveAddress, onSelectGroup };
 
   // Create the map once.
   useEffect(() => {
-    const map = L.map(elRef.current, { zoomControl: true, worldCopyJump: true }).setView([32.5, 35.0], 7);
-    L.tileLayer(TILE_URL, { maxZoom: 19, attribution: ATTRIBUTION }).addTo(map);
-    linesRef.current = L.layerGroup().addTo(map);
+    const map = new MapLibreMap({
+      container: elRef.current,
+      style: STYLES[isDark() ? 'dark' : 'light'],
+      center: [35.0, 32.5],
+      zoom: 6.5,
+      attributionControl: { compact: true },
+    });
+    map.addControl(new NavigationControl({ showCompass: false }), 'top-left');
     mapRef.current = map;
 
-    const ro = new ResizeObserver(() => map.invalidateSize());
+    // Each style load (first load and after a theme switch) needs the lines
+    // source re-created, because setStyle drops custom sources and layers.
+    map.on('style.load', () => {
+      if (!map.getSource(LINES_SOURCE)) {
+        map.addSource(LINES_SOURCE, { type: 'geojson', data: linesRef.current });
+        map.addLayer({
+          id: LINES_SOURCE,
+          type: 'line',
+          source: LINES_SOURCE,
+          paint: {
+            'line-color': ['get', 'color'],
+            'line-width': 1.5,
+            'line-opacity': 0.6,
+            'line-dasharray': [2, 3],
+          },
+        });
+      }
+      setStyleReady((n) => n + 1);
+    });
+
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const retheme = () => map.setStyle(STYLES[isDark() ? 'dark' : 'light']);
+    mq.addEventListener('change', retheme);
+    const obs = new MutationObserver(retheme);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+    const ro = new ResizeObserver(() => map.resize());
     ro.observe(elRef.current);
 
     return () => {
+      mq.removeEventListener('change', retheme);
+      obs.disconnect();
       ro.disconnect();
       map.remove();
       mapRef.current = null;
@@ -87,29 +140,30 @@ export default function MapView({ groups, activeGroupId, everyone, onMoveAddress
         const key = `${g.id}:${a.id}`;
         keep.add(key);
         const dim = g.id !== activeGroupId || a.weight === 0;
-        const icon = pinIcon(g.color, i + 1, dim);
-        const title = `${a.label ? `${a.label} — ` : ''}${a.address}`;
+        const html =
+          `<strong dir="auto">${escapeHtml(a.label || `Address ${i + 1}`)}</strong><br><span dir="auto">${escapeHtml(a.address)}</span>` +
+          `<br><span style="opacity:.7">Drag the marker to move it</span>`;
         let m = markers.get(key);
         if (!m) {
-          m = L.marker([a.lat, a.lng], { icon, draggable: true, title, riseOnHover: true });
-          m.on('dragend', (e) => {
-            const ll = e.target.getLatLng();
+          const el = pinElement(g.color, i + 1, dim);
+          el.title = `${a.label ? `${a.label} — ` : ''}${a.address}`;
+          m = new Marker({ element: el, draggable: true, anchor: 'center' })
+            .setLngLat([a.lng, a.lat])
+            .setPopup(popup(html))
+            .addTo(map);
+          m.on('dragend', () => {
+            const ll = m.getLngLat();
             cbRef.current.onMoveAddress(g.id, a.id, { lat: ll.lat, lng: ll.lng });
           });
-          m.on('click', () => cbRef.current.onSelectGroup(g.id));
-          m.bindPopup('');
-          m.addTo(map);
+          el.addEventListener('click', () => cbRef.current.onSelectGroup(g.id));
           markers.set(key, m);
         } else {
-          const cur = m.getLatLng();
-          if (Math.abs(cur.lat - a.lat) > 1e-9 || Math.abs(cur.lng - a.lng) > 1e-9) m.setLatLng([a.lat, a.lng]);
-          m.setIcon(icon);
-          m.options.title = title;
+          const cur = m.getLngLat();
+          if (Math.abs(cur.lat - a.lat) > 1e-9 || Math.abs(cur.lng - a.lng) > 1e-9) m.setLngLat([a.lng, a.lat]);
+          updatePin(m.getElement(), g.color, i + 1, dim);
+          m.getElement().title = `${a.label ? `${a.label} — ` : ''}${a.address}`;
+          m.getPopup()?.setHTML(html);
         }
-        m.setPopupContent(
-          `<strong dir="auto">${escapeHtml(a.label || `Address ${i + 1}`)}</strong><br><span dir="auto">${escapeHtml(a.address)}</span>` +
-            `<br><span style="opacity:.7">Drag the marker to move it</span>`,
-        );
       });
     });
 
@@ -127,36 +181,43 @@ export default function MapView({ groups, activeGroupId, everyone, onMoveAddress
     if (!map) return;
     const mids = midsRef.current;
     const keep = new Set();
-    linesRef.current.clearLayers();
+    const features = [];
 
     groups.forEach((g) => {
       if (!g.visible || !g.result) return;
       keep.add(g.id);
       const { lat, lng } = g.result;
+      const html =
+        `<strong>Middle of ${escapeHtml(g.name)}</strong><br>${g.result.address ? `<span dir="auto">${escapeHtml(g.result.address)}</span><br>` : ''}` +
+        `<span style="opacity:.7">${lat.toFixed(5)}, ${lng.toFixed(5)}</span>`;
       let m = mids.get(g.id);
       if (!m) {
-        m = L.marker([lat, lng], { icon: midIcon(g.color), zIndexOffset: 1000, keyboard: false });
-        m.addTo(map);
+        m = new Marker({ element: midElement(g.color), anchor: 'center' }).setLngLat([lng, lat]).setPopup(popup(html)).addTo(map);
         mids.set(g.id, m);
       } else {
-        m.setLatLng([lat, lng]);
-        m.setIcon(midIcon(g.color));
+        m.setLngLat([lng, lat]);
+        const el = m.getElement();
+        if (el.dataset.color !== g.color) {
+          el.innerHTML = midElement(g.color).innerHTML;
+          el.dataset.color = g.color;
+        }
+        m.getPopup()?.setHTML(html);
       }
-      m.setOpacity(g.result.stale ? 0.45 : 1);
-      m.bindPopup(
-        `<strong>Middle of ${escapeHtml(g.name)}</strong><br>${g.result.address ? `<span dir="auto">${escapeHtml(g.result.address)}</span><br>` : ''}` +
-          `<span style="opacity:.7">${lat.toFixed(5)}, ${lng.toFixed(5)}</span>`,
-      );
+      m.getElement().style.opacity = g.result.stale ? '0.45' : '1';
       if (g.id === activeGroupId && !g.result.stale) {
         g.addresses.forEach((a) => {
           if (a.weight === 0) return;
-          L.polyline(
-            [
-              [a.lat, a.lng],
-              [lat, lng],
-            ],
-            { color: g.color, weight: 1.5, opacity: 0.55, dashArray: '4 6', interactive: false },
-          ).addTo(linesRef.current);
+          features.push({
+            type: 'Feature',
+            properties: { color: g.color },
+            geometry: {
+              type: 'LineString',
+              coordinates: [
+                [a.lng, a.lat],
+                [lng, lat],
+              ],
+            },
+          });
         });
       }
     });
@@ -167,7 +228,11 @@ export default function MapView({ groups, activeGroupId, everyone, onMoveAddress
         mids.delete(id);
       }
     }
-  }, [groups, activeGroupId]);
+
+    linesRef.current = { type: 'FeatureCollection', features };
+    const src = map.getSource(LINES_SOURCE);
+    if (src) src.setData(linesRef.current);
+  }, [groups, activeGroupId, styleReady]);
 
   // "Everyone" marker.
   useEffect(() => {
@@ -179,14 +244,15 @@ export default function MapView({ groups, activeGroupId, everyone, onMoveAddress
     }
     if (everyone) {
       const color = isDark() ? '#ffffff' : '#14202b';
-      const m = L.marker([everyone.lat, everyone.lng], { icon: midIcon(color), zIndexOffset: 2000, keyboard: false }).addTo(map);
-      m.bindPopup(
+      const html =
         `<strong>Middle of everyone</strong><br>${everyone.address ? `<span dir="auto">${escapeHtml(everyone.address)}</span><br>` : ''}` +
-          `<span style="opacity:.7">${everyone.lat.toFixed(5)}, ${everyone.lng.toFixed(5)}</span>`,
-      );
-      everyoneRef.current = m;
+        `<span style="opacity:.7">${everyone.lat.toFixed(5)}, ${everyone.lng.toFixed(5)}</span>`;
+      everyoneRef.current = new Marker({ element: midElement(color), anchor: 'center' })
+        .setLngLat([everyone.lng, everyone.lat])
+        .setPopup(popup(html))
+        .addTo(map);
     }
-  }, [everyone]);
+  }, [everyone, styleReady]);
 
   // Fit the view when the set of points changes (not on every drag or rename).
   useEffect(() => {
@@ -195,10 +261,10 @@ export default function MapView({ groups, activeGroupId, everyone, onMoveAddress
     const pts = [];
     groups.forEach((g) => {
       if (!g.visible) return;
-      g.addresses.forEach((a) => pts.push([a.lat, a.lng]));
-      if (g.result && !g.result.stale) pts.push([g.result.lat, g.result.lng]);
+      g.addresses.forEach((a) => pts.push([a.lng, a.lat]));
+      if (g.result && !g.result.stale) pts.push([g.result.lng, g.result.lat]);
     });
-    if (everyone) pts.push([everyone.lat, everyone.lng]);
+    if (everyone) pts.push([everyone.lng, everyone.lat]);
     const key = `${pts.length}|${groups
       .filter((g) => g.visible)
       .map((g) => `${g.id}:${g.addresses.length}:${g.result && !g.result.stale ? 'r' : ''}`)
@@ -207,10 +273,11 @@ export default function MapView({ groups, activeGroupId, everyone, onMoveAddress
     lastFitKey.current = key;
     if (pts.length === 0) return;
     if (pts.length === 1) {
-      map.setView(pts[0], Math.max(map.getZoom(), 13), { animate: true });
+      map.easeTo({ center: pts[0], zoom: Math.max(map.getZoom(), 13) });
       return;
     }
-    map.fitBounds(L.latLngBounds(pts), { padding: [48, 48], maxZoom: 15, animate: true });
+    const bounds = pts.reduce((b, p) => b.extend(p), new LngLatBounds(pts[0], pts[0]));
+    map.fitBounds(bounds, { padding: 56, maxZoom: 15, duration: 600 });
   }, [groups, everyone]);
 
   return <div className="map" ref={elRef} role="region" aria-label="Map" />;
