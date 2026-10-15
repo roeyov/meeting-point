@@ -6,7 +6,24 @@ import PasteDialog from './components/PasteDialog.jsx';
 import { METHODS, computeMiddle, distanceKm, formatCoord } from './geo.js';
 import { reverse } from './geocode.js';
 import { GROUP_COLORS, encodeShare, loadState, reducer, saveState } from './state.js';
-import { Copy, Eye, Logo, Target, Trash } from './icons.jsx';
+import { Copy, Eye, Logo, Moon, Sun, Target, Trash } from './icons.jsx';
+import { applyTheme, effectiveTheme, readTheme } from './theme.js';
+
+function useTheme() {
+  const [theme, setTheme] = useState(readTheme);
+  const [effective, setEffective] = useState(() => effectiveTheme(theme));
+  useEffect(() => {
+    applyTheme(theme);
+    setEffective(effectiveTheme(theme));
+    if (theme !== 'system') return undefined;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => setEffective(effectiveTheme('system'));
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [theme]);
+  const toggle = () => setTheme(effective === 'dark' ? 'light' : 'dark');
+  return [effective, toggle];
+}
 
 function useToast() {
   const [msg, setMsg] = useState(null);
@@ -41,6 +58,7 @@ export default function App() {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [locating, setLocating] = useState(false);
   const [toast, showToast] = useToast();
+  const [theme, toggleTheme] = useTheme();
 
   useEffect(() => saveState(state), [state]);
 
@@ -134,6 +152,15 @@ export default function App() {
           <span className="spacer" />
           <button type="button" className="link-btn" onClick={shareLink} title="Copy a link that contains all groups">
             Share link
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={toggleTheme}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? <Sun /> : <Moon />}
           </button>
         </header>
 

@@ -175,6 +175,9 @@ textarea:focus-visible {
 .brand .spacer {
   flex: 1;
 }
+.brand .icon-btn {
+  margin-right: -6px;
+}
 
 /* ---- group tabs --------------------------------------------------------- */
 .tabs {
