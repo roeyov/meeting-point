@@ -336,7 +336,12 @@ export default function App() {
                   <Copy />
                 </button>
               </div>
-              {res.spread > 0.5 && <span className="note warn">These addresses are spread across a large part of the globe, so the middle may be far from everyone.</span>}
+              {res.spread > 0.1 && (
+                <span className="note warn">
+                  These addresses span a large part of the globe. The average leans toward wherever most people are; pick “Shortest longest trip”
+                  for the point that is equally far from everyone.
+                </span>
+              )}
               <div className="result-links">
                 <a href={`https://www.google.com/maps?q=${res.lat},${res.lng}`} target="_blank" rel="noopener noreferrer">
                   Open in Google Maps

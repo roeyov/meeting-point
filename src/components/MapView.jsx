@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { LngLatBounds, Map as MapLibreMap, Marker, NavigationControl, Popup, setRTLTextPlugin, setWorkerUrl } from 'maplibre-gl';
+import { GlobeControl, LngLatBounds, Map as MapLibreMap, Marker, NavigationControl, Popup, setRTLTextPlugin, setWorkerUrl } from 'maplibre-gl';
+import { greatCirclePath } from '../geo.js';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 
 // MapLibre runs tile parsing in a web worker. Vite emits it as its own file;
@@ -12,6 +13,15 @@ const STYLES = {
   dark: 'https://tiles.openfreemap.org/styles/dark',
 };
 const LINES_SOURCE = 'pull-lines';
+const PROJECTION_KEY = 'meeting-point:projection';
+
+function readProjection() {
+  try {
+    return localStorage.getItem(PROJECTION_KEY) === 'mercator' ? 'mercator' : 'globe';
+  } catch {
+    return 'globe';
+  }
+}
 
 // Shapes Hebrew and Arabic map labels correctly. Loaded lazily, only when a
 // label needs it.
@@ -89,11 +99,24 @@ export default function MapView({ groups, activeGroupId, everyone, pinMode, pinT
       attributionControl: { compact: true },
     });
     map.addControl(new NavigationControl({ showCompass: false }), 'top-left');
+    // Globe at low zoom, flattening into a normal map as you zoom in; the
+    // control lets people switch back to a flat map and the choice is kept.
+    map.addControl(new GlobeControl(), 'top-left');
+    map.on('projectiontransition', (e) => {
+      const name = e.newProjection === 'mercator' ? 'mercator' : 'globe';
+      try {
+        localStorage.setItem(PROJECTION_KEY, name);
+      } catch {
+        /* fine without it */
+      }
+    });
     mapRef.current = map;
 
     // Each style load (first load and after a theme switch) needs the lines
     // source re-created, because setStyle drops custom sources and layers.
     map.on('style.load', () => {
+      // setStyle resets the projection, so re-apply the chosen one each time.
+      map.setProjection({ type: readProjection() });
       if (!map.getSource(LINES_SOURCE)) {
         map.addSource(LINES_SOURCE, { type: 'geojson', data: linesRef.current });
         map.addLayer({
@@ -255,10 +278,9 @@ export default function MapView({ groups, activeGroupId, everyone, pinMode, pinT
             properties: { color: g.color },
             geometry: {
               type: 'LineString',
-              coordinates: [
-                [a.lng, a.lat],
-                [lng, lat],
-              ],
+              // The true shortest path curves on a flat map; drawing it straight
+              // would make a correct middle look wrong on long distances.
+              coordinates: greatCirclePath(a, { lat, lng }),
             },
           });
         });

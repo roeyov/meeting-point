@@ -134,6 +134,36 @@ export function minimaxCenter(points, iterations = 600) {
   return { ...toLatLng(v), spread: seed.spread };
 }
 
+/**
+ * Points along the shortest path between a and b (a great circle), as
+ * [lng, lat] pairs for drawing. Consecutive longitudes are kept within 180°
+ * of each other so a path crossing the date line draws correctly on a map
+ * that repeats the world sideways.
+ */
+export function greatCirclePath(a, b, steps = 64) {
+  const va = toVec(a);
+  const vb = toVec(b);
+  const omega = angle(va, vb);
+  const out = [];
+  if (omega < 1e-9) return [[a.lng, a.lat], [b.lng, b.lat]];
+  const sinO = Math.sin(omega);
+  let prevLng = null;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const ka = Math.sin((1 - t) * omega) / sinO;
+    const kb = Math.sin(t * omega) / sinO;
+    const p = toLatLng([ka * va[0] + kb * vb[0], ka * va[1] + kb * vb[1], ka * va[2] + kb * vb[2]]);
+    let lng = p.lng;
+    if (prevLng !== null) {
+      while (lng - prevLng > 180) lng -= 360;
+      while (lng - prevLng < -180) lng += 360;
+    }
+    prevLng = lng;
+    out.push([lng, p.lat]);
+  }
+  return out;
+}
+
 export const METHODS = {
   centroid: {
     label: 'Average location',

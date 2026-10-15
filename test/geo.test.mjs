@@ -88,3 +88,17 @@ test('minimax centre equalises the two farthest points', () => {
   const diameter = distanceKm(pts[0], pts[2]);
   assert.ok(Math.abs(far - diameter / 2) < 0.5, `longest trip ${far} vs half-diameter ${diameter / 2}`);
 });
+
+test('great-circle path starts and ends at the inputs and keeps longitudes continuous', async () => {
+  const { greatCirclePath } = await import('../src/geo.js');
+  const path = greatCirclePath({ lat: 49.169, lng: -122.577 }, { lat: 32.062, lng: 34.95 }, 32);
+  assert.equal(path.length, 33);
+  assert.ok(close(path[0][0], -122.577) && close(path[0][1], 49.169));
+  assert.ok(close(path[32][0], 34.95, 1e-6) && close(path[32][1], 32.062, 1e-6));
+  // Vancouver → Israel goes over the Arctic: the path peaks well north of both ends.
+  assert.ok(Math.max(...path.map((p) => p[1])) > 60);
+  for (let i = 1; i < path.length; i++) assert.ok(Math.abs(path[i][0] - path[i - 1][0]) < 180);
+  // Crossing the date line: Tokyo → Los Angeles should not jump 360°.
+  const dl = greatCirclePath({ lat: 35.68, lng: 139.69 }, { lat: 34.05, lng: -118.24 }, 16);
+  for (let i = 1; i < dl.length; i++) assert.ok(Math.abs(dl[i][0] - dl[i - 1][0]) < 180);
+});
