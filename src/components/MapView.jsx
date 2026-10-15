@@ -1,12 +1,10 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 
-const TILES = {
-  light: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-  dark: 'https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png',
-};
-const ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+// Standard OpenStreetMap tiles: free, no API key. Dark mode is handled in
+// CSS with a filter on the tile pane (see --tile-filter in styles.css).
+const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 function isDark() {
   const forced = document.documentElement.dataset.theme;
@@ -51,7 +49,6 @@ function escapeHtml(s) {
 export default function MapView({ groups, activeGroupId, everyone, onMoveAddress, onSelectGroup }) {
   const elRef = useRef(null);
   const mapRef = useRef(null);
-  const tilesRef = useRef(null);
   const markersRef = useRef(new Map());
   const midsRef = useRef(new Map());
   const linesRef = useRef(null);
@@ -63,26 +60,14 @@ export default function MapView({ groups, activeGroupId, everyone, onMoveAddress
   // Create the map once.
   useEffect(() => {
     const map = L.map(elRef.current, { zoomControl: true, worldCopyJump: true }).setView([32.5, 35.0], 7);
-    tilesRef.current = L.tileLayer(TILES[isDark() ? 'dark' : 'light'], {
-      subdomains: 'abcd',
-      maxZoom: 19,
-      attribution: ATTRIBUTION,
-    }).addTo(map);
+    L.tileLayer(TILE_URL, { maxZoom: 19, attribution: ATTRIBUTION }).addTo(map);
     linesRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
-
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const retheme = () => tilesRef.current.setUrl(TILES[isDark() ? 'dark' : 'light']);
-    mq.addEventListener('change', retheme);
-    const obs = new MutationObserver(retheme);
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
     const ro = new ResizeObserver(() => map.invalidateSize());
     ro.observe(elRef.current);
 
     return () => {
-      mq.removeEventListener('change', retheme);
-      obs.disconnect();
       ro.disconnect();
       map.remove();
       mapRef.current = null;

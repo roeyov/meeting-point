@@ -50,6 +50,6 @@ Pushing to `main` deploys to GitHub Pages through `.github/workflows/deploy.yml`
 
 ## Stack
 
-Vite, React, Leaflet with CARTO/OpenStreetMap tiles, Photon geocoding. No backend.
+Vite, React, Leaflet with OpenStreetMap tiles, Photon geocoding. No backend.
 
-Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, tiles by [CARTO](https://carto.com/attributions).
+Map data and tiles © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors.
