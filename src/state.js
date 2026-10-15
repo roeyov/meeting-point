@@ -175,7 +175,7 @@ export function reducer(state, action) {
             addresses: [
               ...g.addresses,
               {
-                id: uid(),
+                id: action.id ?? uid(),
                 label: action.label ?? '',
                 address: action.place.address,
                 lat: action.place.lat,

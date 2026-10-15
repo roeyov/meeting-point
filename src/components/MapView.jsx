@@ -65,17 +65,19 @@ function popup(html) {
  * and (optionally) the middle of everyone. Address markers can be dragged;
  * `onMoveAddress(groupId, addressId, {lat,lng})` is called when that happens.
  */
-export default function MapView({ groups, activeGroupId, everyone, onMoveAddress, onSelectGroup }) {
+export default function MapView({ groups, activeGroupId, everyone, pinMode, pinTarget, onPin, onExitPin, onMoveAddress, onSelectGroup }) {
   const elRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef(new Map());
   const midsRef = useRef(new Map());
   const everyoneRef = useRef(null);
   const linesRef = useRef({ type: 'FeatureCollection', features: [] });
-  const cbRef = useRef({ onMoveAddress, onSelectGroup });
+  const cbRef = useRef({ onMoveAddress, onSelectGroup, onPin, onExitPin });
+  const contextPopupRef = useRef(null);
   const lastFitKey = useRef('');
   const [styleReady, setStyleReady] = useState(0);
-  cbRef.current = { onMoveAddress, onSelectGroup };
+  const [pinCount, setPinCount] = useState(0);
+  cbRef.current = { onMoveAddress, onSelectGroup, onPin, onExitPin };
 
   // Create the map once.
   useEffect(() => {
@@ -118,6 +120,23 @@ export default function MapView({ groups, activeGroupId, everyone, onMoveAddress
     const ro = new ResizeObserver(() => map.resize());
     ro.observe(elRef.current);
 
+    // Right-click (long-press on touch) anywhere: offer to add an address there.
+    map.on('contextmenu', (e) => {
+      e.preventDefault();
+      contextPopupRef.current?.remove();
+      const el = document.createElement('div');
+      el.className = 'ctx-popup';
+      const { lat, lng } = e.lngLat;
+      el.innerHTML = `<span>${lat.toFixed(5)}, ${lng.toFixed(5)}</span><button type="button" class="ctx-add"></button>`;
+      const btn = el.querySelector('button');
+      btn.textContent = `Add address here`;
+      btn.addEventListener('click', () => {
+        cbRef.current.onPin({ lat, lng });
+        contextPopupRef.current?.remove();
+      });
+      contextPopupRef.current = new Popup({ offset: 6, closeButton: true, maxWidth: '260px' }).setLngLat(e.lngLat).setDOMContent(el).addTo(map);
+    });
+
     return () => {
       mq.removeEventListener('change', retheme);
       obs.disconnect();
@@ -126,6 +145,30 @@ export default function MapView({ groups, activeGroupId, everyone, onMoveAddress
       mapRef.current = null;
     };
   }, []);
+
+  // Pin mode: crosshair cursor, each click adds an address, Esc leaves the mode.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !pinMode) return undefined;
+    setPinCount(0);
+    const canvas = map.getCanvas();
+    canvas.style.cursor = 'crosshair';
+    const onClick = (e) => {
+      if (e.originalEvent?.target?.closest?.('.maplibregl-marker, .maplibregl-popup')) return;
+      cbRef.current.onPin({ lat: e.lngLat.lat, lng: e.lngLat.lng });
+      setPinCount((n) => n + 1);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') cbRef.current.onExitPin();
+    };
+    map.on('click', onClick);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      map.off('click', onClick);
+      window.removeEventListener('keydown', onKey);
+      canvas.style.cursor = '';
+    };
+  }, [pinMode]);
 
   // Sync address markers.
   useEffect(() => {
@@ -271,14 +314,31 @@ export default function MapView({ groups, activeGroupId, everyone, onMoveAddress
       .join(',')}|${everyone ? 'e' : ''}`;
     if (key === lastFitKey.current) return;
     lastFitKey.current = key;
-    if (pts.length === 0) return;
+    if (pts.length === 0 || pinMode) return; // don't yank the map around while someone is placing pins
     if (pts.length === 1) {
       map.easeTo({ center: pts[0], zoom: Math.max(map.getZoom(), 13) });
       return;
     }
     const bounds = pts.reduce((b, p) => b.extend(p), new LngLatBounds(pts[0], pts[0]));
     map.fitBounds(bounds, { padding: 56, maxZoom: 15, duration: 600 });
-  }, [groups, everyone]);
+  }, [groups, everyone, pinMode]);
 
-  return <div className="map" ref={elRef} role="region" aria-label="Map" />;
+  return (
+    <div className="map-wrap">
+      <div className="map" ref={elRef} role="region" aria-label="Map" />
+      {pinMode && (
+        <div className="pin-banner" role="status" style={{ '--c': pinTarget?.color }}>
+          <span className="dot" />
+          <span>
+            {pinCount === 0
+              ? `Click the map to add an address to ${pinTarget?.name ?? 'this group'}`
+              : `Added ${pinCount} · click again for more`}
+          </span>
+          <button type="button" onClick={() => cbRef.current.onExitPin()}>
+            Done
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }

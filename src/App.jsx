@@ -5,7 +5,7 @@ import MapView from './components/MapView.jsx';
 import PasteDialog from './components/PasteDialog.jsx';
 import { METHODS, computeMiddle, distanceKm, formatCoord } from './geo.js';
 import { reverse } from './geocode.js';
-import { GROUP_COLORS, encodeShare, loadState, reducer, saveState } from './state.js';
+import { GROUP_COLORS, encodeShare, loadState, reducer, saveState, uid } from './state.js';
 import { Copy, Eye, Logo, Moon, Sun, Target, Trash } from './icons.jsx';
 import { applyTheme, effectiveTheme, readTheme } from './theme.js';
 
@@ -56,6 +56,7 @@ async function copyText(text) {
 export default function App() {
   const [state, dispatch] = useReducer(reducer, null, loadState);
   const [pasteOpen, setPasteOpen] = useState(false);
+  const [pinMode, setPinMode] = useState(false);
   const [locating, setLocating] = useState(false);
   const [toast, showToast] = useToast();
   const [theme, toggleTheme] = useTheme();
@@ -74,6 +75,19 @@ export default function App() {
     return m;
   }, [group]);
   const maxKm = distances ? Math.max(0, ...group.addresses.filter((a) => a.weight > 0).map((a) => distances.get(a.id))) : 0;
+
+  /** Add an address from bare coordinates, then fill in the nearest street address. */
+  async function addPoint(lat, lng, label = '') {
+    const id = uid();
+    const groupId = group.id;
+    dispatch({ type: 'address/add', groupId, id, label, place: { address: `${formatCoord(lat)}, ${formatCoord(lng)}`, lat, lng } });
+    try {
+      const place = await reverse(lat, lng);
+      if (place) dispatch({ type: 'address/update', groupId, id, patch: { address: place.address } });
+    } catch {
+      /* coordinates stay as the address */
+    }
+  }
 
   async function resolveAddress(result, onAddress) {
     try {
@@ -173,7 +187,10 @@ export default function App() {
               className="tab"
               aria-selected={g.id === group.id}
               style={{ '--c': g.color }}
-              onClick={() => dispatch({ type: 'group/select', id: g.id })}
+              onClick={() => {
+                setPinMode(false);
+                dispatch({ type: 'group/select', id: g.id });
+              }}
             >
               <span className="dot" />
               <span className="name" dir="auto">
@@ -239,6 +256,9 @@ export default function App() {
             <button type="button" className="link-btn" onClick={addMyLocation} disabled={locating}>
               {locating ? 'Finding you…' : 'Use my location'}
             </button>
+            <button type="button" className={`link-btn${pinMode ? ' active' : ''}`} onClick={() => setPinMode((v) => !v)} aria-pressed={pinMode}>
+              {pinMode ? 'Stop pinning' : 'Pin on map'}
+            </button>
             <button type="button" className="link-btn" onClick={() => setPasteOpen(true)}>
               Paste a list
             </button>
@@ -252,7 +272,7 @@ export default function App() {
           {group.addresses.length === 0 ? (
             <div className="empty-state">
               <strong>No addresses yet</strong>
-              Add at least two to find the middle. Markers can be dragged on the map afterwards.
+              Search above, pin a spot on the map, or right-click the map. You need at least two to find the middle.
             </div>
           ) : (
             <ul className="addresses">
@@ -374,6 +394,10 @@ export default function App() {
         groups={state.groups}
         activeGroupId={group.id}
         everyone={state.everyone}
+        pinMode={pinMode}
+        pinTarget={{ name: group.name, color: group.color }}
+        onPin={({ lat, lng }) => addPoint(lat, lng)}
+        onExitPin={() => setPinMode(false)}
         onSelectGroup={(id) => dispatch({ type: 'group/select', id })}
         onMoveAddress={async (groupId, id, { lat, lng }) => {
           dispatch({ type: 'address/update', groupId, id, patch: { lat, lng } });
